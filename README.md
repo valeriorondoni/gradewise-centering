@@ -80,7 +80,11 @@ Without GitHub Actions you can deploy by hand: `python deploy_space.py --space y
 **Public or private Space?** A *public* Space's code is visible to anyone on
 Hugging Face (the site itself still needs the team password, and the test
 photos stay in the private dataset). A *private* Space keeps the code hidden,
-but then every teammate needs a Hugging Face account with access to it.
+but then every teammate needs a Hugging Face account with access to it: create
+a free **organization**, put the Space and the dataset in it, and invite the
+teammates as members (a private Space under a personal account is visible only
+to its owner). Teammates open the site at its direct `….hf.space` address
+while signed in to Hugging Face, then type the team password.
 
 Other hosts work too with the same `Dockerfile` (Render, Railway, Fly.io): set
 `GRADEWISE_PASSWORD`, and either `HF_DATASET` + `HF_TOKEN` as above or a
