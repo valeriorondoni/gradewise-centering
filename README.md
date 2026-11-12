@@ -90,13 +90,36 @@ boxes and edge bars coloured by level), `front_corners.jpg` /
 - **Edges** (between the corners): length of edge showing whitening, in mm. Levels: clean < 0.5, minor < 3, slight < 10, moderate < 25, heavy.
 - `wear_standards.py` turns the levels into a PSA ceiling. PSA describes wear only in words ("slightest fraying at one or two corners" for an 8), so **these thresholds are ours and provisional** until they're calibrated on real slabbed cards. Use the test site's "real PSA grade" field for this.
 
+**Yellow borders.** Yellow ink is almost as light as paper, so the step from
+yellow to white is mostly a loss of colour. A pixel that is merely a *paler
+yellow* used to pass the "40% of the way to white" test. In photos this happens
+all along the outline: JPEG stores colour at lower resolution than brightness,
+so next to a dark background the outermost border pixel keeps its brightness
+but loses about half its colour; light catching the cut edge does the same.
+On the eBay test photos (~12 px/mm) this made most yellow fronts read "heavy"
+edge whitening (e.g. Nidoqueen Jungle, left edge 34 mm) where there is no white
+paper. So for inks whose distance to white is mostly colour (chroma larger than
+the lightness gap), a pixel now also has to have lost at least 60% of the
+ink's chroma (`CHROMA_LOSS_T`; real paper is nearly grey, the false pixels lost
+42-55%) and must not be more than 10 L units darker than the ink (a darker,
+greyer pixel is a blend with the dark background). Blue, red and other darker
+inks are unaffected. Result on the 17 cropped eBay fronts: no more "heavy"
+edges; the ones left are Kabutops Fossil left edge (moderate, a light
+line is visible along it) and Kangaskhan left edge (moderate, faint pale rim).
+All backs give the same numbers as before, including the Articuno raw back's
+real worn left edge (slight, 7.8 mm).
+
 `python test_wear.py` paints whitening of known size (ragged, like real
 fraying) on synthetic yellow and blue cards and photographs them the same way
-as the centering test. Current result: no false whitening on clean cards,
-edge length median error 1%, corner area median error 18% (it reads slightly
-low, because the blur at the very edge mixes with the background). No zone is
-more than one level off. Whitening thinner than about 0.15 mm is mostly
-missed at phone resolution.
+as the centering test. Three yellow cards also get a pale-yellow sheen along
+an edge (the border colour 40-45% of the way to white, one of them at eBay
+size, 750 px wide), which must not count as wear; the old rule reported 3
+false zones on them. Current result: no false whitening on clean or sheened
+cards, edge length median error 3%, corner area median error 20% (it reads
+slightly low, because the blur at the very edge mixes with the background). No
+zone is more than one level off. Whitening thinner than about 0.15 mm is mostly
+missed at phone resolution. Margin: a sheen 50% of the way to white does get
+reported, so a strongly lit pale edge can still read as minor/slight wear.
 
 ## PSA rules used (`psa_standards.py`)
 
