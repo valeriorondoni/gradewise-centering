@@ -25,74 +25,55 @@ Centering allows at most PSA 9.
 
 For flatbed scans that are already cropped to the card, add `--cropped`.
 
-## Test site
+## Test site (each teammate runs it on their own PC)
 
-```bash
-python webapp.py
-```
+**Windows: double-click `start.bat`.** The first time it creates the Python
+environment and installs the packages; then it opens the site at
+http://127.0.0.1:5000. Close the black window to stop it.
+(Elsewhere: `pip install -r requirements.txt`, then `python webapp.py`.)
 
-Open http://127.0.0.1:5000, upload the front and back (both required), and
-optionally type the centering you measured by hand and the card's real PSA
-grade. The page runs centering and whitening on both sides and shows the
-ceiling next to your values. Every run is saved in `webtests/` (images,
-`run.json`, and a row per side in `log.csv`). The history shows the centering
-error across all cards, and how often the ceiling came out *below* a slabbed
-card's real grade, which a ceiling should never do.
+Upload the front and back (both required), and optionally type the centering
+you measured by hand and the card's real PSA grade. The page runs centering
+and whitening on both sides and shows the ceiling next to your values. The
+history shows the centering error across all cards, and how often the
+ceiling came out *below* a slabbed card's real grade, which a ceiling should
+never do.
 
-### Sharing it with the team
+### Sharing results through GitHub
 
-1. Once: `winget install --id Cloudflare.cloudflared` (then open a new terminal).
-2. Terminal 1: `python webapp.py --share`. It asks for a team password (8+ characters) and starts a multi-user server that still only listens on this PC.
-3. Terminal 2: `cloudflared tunnel --protocol http2 --url http://localhost:5000`. It prints a `https://….trycloudflare.com` link. (`--protocol http2` uses plain HTTPS. Without it cloudflared uses QUIC over UDP, which many public and office Wi-Fi networks block: the tunnel then keeps logging "Failed to dial a quic connection".)
-4. Send the link and the password (separately). Any username works in the login box.
+Every test is saved in `webtests/` as its own folder (photos, annotated
+images, `run.json`). `webtests/` is a clone of a **private results
+repository** on GitHub, named in `results_repo.txt`: after each test the site
+uploads that folder in the background, and at startup or with **Refresh team
+history** it downloads everyone else's. The history table (`log.csv`) is
+rebuilt on each PC from all the `run.json` files, so it is never shared and
+uploads from two people at the same time can't conflict.
 
-The link changes every time cloudflared restarts, and it only works while this
-PC is on, awake and running both terminals. All results land in this PC's
-`webtests/`, so the whole team shares one history. The "Tested by" field
-records who uploaded what.
+One-time setup by the repository owner:
 
-### Hosting for free on Hugging Face Spaces (always on, fixed link)
+1. On GitHub create a new **private** repository named `gradewise-results` (empty: no README).
+2. Settings → Collaborators → add every teammate (they need a GitHub account).
+3. If the repository has another name or owner, put its address in `results_repo.txt`.
 
-The code lives on GitHub. A GitHub workflow copies the site to a Hugging Face
-Space (Docker, free CPU tier: 2 vCPU, 16 GB RAM, sleeps after 48 h without
-visits) on every push. Spaces wipe their disk on restart, so every test is
-also saved to a **private Hugging Face dataset** and restored at startup:
-the shared history survives restarts and redeploys.
+One-time setup for each teammate:
 
-One-time setup:
+1. **Python** from https://www.python.org/downloads/ (tick *Add python.exe to PATH*).
+2. **Git for Windows**: `winget install --id Git.Git -e` (it includes the GitHub sign-in helper).
+3. **The code**: GitHub Desktop → *File → Clone repository* → `valeriorondoni/gradewise-centering`.
+4. Double-click `start.bat`. The first time, a GitHub sign-in window opens: sign in once.
 
-1. **Hugging Face account** (free) at huggingface.co.
-2. **Access token**: Settings → Access Tokens → *Create new token*, type *Write*. Keep it secret.
-3. **Space**: *New Space* → name e.g. `gradewise-test`, SDK **Docker** (blank template), hardware **CPU basic (free)**. Public or private: see the note below.
-4. **Space secrets and variables** (Space → Settings → *Variables and secrets*):
-   - secret `GRADEWISE_PASSWORD`: the team password (8+ plain characters). Without it the site refuses to start.
-   - secret `HF_TOKEN`: the token from step 2.
-   - variable `HF_DATASET`: e.g. `your-name/gradewise-tests`. It is created private on first start.
-5. **GitHub repository** → Settings → *Secrets and variables* → Actions:
-   - secret `HF_TOKEN`: the same token.
-   - variable `HF_SPACE`: e.g. `your-name/gradewise-test`.
-6. Push to `main` (or run the workflow by hand from the *Actions* tab). The Space builds in a few minutes and the site is at `https://your-name-gradewise-test.hf.space`.
+The status next to *History* says whether your tests are shared. If an
+upload fails (no internet, sign-in expired) the test stays on your PC and is
+uploaded with the next test or Refresh. To get code updates, *Fetch/Pull* in
+GitHub Desktop and restart `start.bat`.
 
-Without GitHub Actions you can deploy by hand: `python deploy_space.py --space your-name/gradewise-test`
-(with `HF_TOKEN` set). Only the Python files, `requirements.txt`, the
-`Dockerfile` and `space/README.md` go to the Space.
+### Other ways to run it
 
-**Public or private Space?** A *public* Space's code is visible to anyone on
-Hugging Face (the site itself still needs the team password, and the test
-photos stay in the private dataset). A *private* Space keeps the code hidden,
-but then every teammate needs a Hugging Face account with access to it: create
-a free **organization**, put the Space and the dataset in it, and invite the
-teammates as members (a private Space under a personal account is visible only
-to its owner). Teammates open the site at its direct `….hf.space` address
-while signed in to Hugging Face, then type the team password.
+- **One shared link from your PC** (`--share` + a Cloudflare tunnel): `python webapp.py --share` asks for a team password; then `cloudflared tunnel --protocol http2 --url http://localhost:5000` prints a temporary link. It dies whenever the PC sleeps or loses its connection.
+- **A paid host** with the `Dockerfile` (Render, Railway, Hugging Face Spaces on a paid plan…): `python webapp.py --deploy` reads `GRADEWISE_PASSWORD`, `PORT`, and either `DATA_DIR` (a persistent disk) or `HF_DATASET` + `HF_TOKEN` (`hf_storage.py`: history in a private Hugging Face dataset). Free Docker hosting turned out not to be available: Hugging Face Spaces need a paid plan for Docker, and Render's free tier has too little memory and no persistent disk.
 
-Other hosts work too with the same `Dockerfile` (Render, Railway, Fly.io): set
-`GRADEWISE_PASSWORD`, and either `HF_DATASET` + `HF_TOKEN` as above or a
-persistent disk with `DATA_DIR` pointing at it.
-
-What goes into the GitHub repository is set by `.gitignore`: the team's
+What goes into the code repository is set by `.gitignore`: the team's
 uploads (`webtests/`), the local `.venv/` and personal runs stay out.
-
 ## Whitening on corners and edges (step 2)
 
 ```bash
@@ -196,7 +177,8 @@ Making this card work required three changes, all now in the code:
 - `test_wear.py`: whitening accuracy test
 - `webapp.py`: test site (Flask): local, shared through a tunnel, or hosted
 - `Dockerfile`, `.dockerignore`: container for hosting the site
-- `hf_storage.py`: keeps the hosted site's test history in a private Hugging Face dataset
-- `deploy_space.py`, `space/README.md`, `.github/workflows/deploy-space.yml`: deploy to the Hugging Face Space
+- `start.bat`: Windows launcher for teammates (sets up Python packages, opens the site)
+- `github_results.py`, `results_repo.txt`: share test results through a private GitHub repository
+- `hf_storage.py`: on a paid host, keeps the test history in a private Hugging Face dataset
 - `.gitignore`: keeps uploads, the local environment and personal runs out of git
 - `samples/`: two synthetic photos, the raw card cropped from the pitch slide, and `real/` with the Japanese Charizard front and back

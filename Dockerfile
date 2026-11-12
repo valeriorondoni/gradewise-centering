@@ -20,7 +20,8 @@ ENV HOME=/home/user \
 WORKDIR $HOME/app
 
 COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# huggingface_hub only matters on a host (hf_storage.py), so it isn't in requirements.txt
+RUN pip install --no-cache-dir --user -r requirements.txt "huggingface_hub>=0.30"
 
 COPY --chown=user *.py ./
 

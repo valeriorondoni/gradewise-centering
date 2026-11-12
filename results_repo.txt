@@ -1,0 +1,4 @@
+# Private GitHub repository where the team's test results are shared.
+# Every teammate needs access to it (repository Settings -> Collaborators).
+# Leave only comment lines here to keep results on each PC.
+https://github.com/valeriorondoni/gradewise-results.git

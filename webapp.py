@@ -1,7 +1,10 @@
 """Local test site for the grade engine (centering + whitening).
 
+    start.bat                 (Windows, double-click) sets everything up and opens the site
     pip install -r requirements.txt
-    python webapp.py          then open http://127.0.0.1:5000
+    python webapp.py          then open http://127.0.0.1:5000. Tests are shared with
+                              the team through the GitHub repository in
+                              results_repo.txt (see github_results.py)
     python webapp.py --share  same, but asks for a team password first and runs
                               on a multi-user server, ready to put behind a tunnel
                               (cloudflared tunnel --protocol http2 --url http://localhost:5000)
@@ -37,6 +40,7 @@ from flask import (Flask, Response, abort, redirect, render_template_string, req
                    send_from_directory, url_for)
 
 from centering import analyse
+import github_results
 import hf_storage
 from wear import analyse_wear
 
@@ -171,51 +175,53 @@ def _summarise(run: dict):
                           for s in run["sides"])
 
 
-def _log(run: dict) -> bytes:
-    """Append the run to log.csv; returns the whole log as it is now."""
+def _rebuild_log() -> bytes:
+    """Rewrite log.csv from every run.json in TESTS (yours and, once synced, the
+    team's), oldest first. Returns the new log. Nothing is appended in place, so
+    the log can't drift from the runs and never needs merging between PCs."""
+    runs = []
+    for name in sorted(os.listdir(TESTS)) if os.path.isdir(TESTS) else []:
+        path = os.path.join(TESTS, name, "run.json")
+        if os.path.isfile(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    run = json.load(f)
+            except (OSError, ValueError):
+                continue                        # half-written or damaged: skip, don't break the page
+            if "ceiling" in run:                # runs from the very first version have another format
+                runs.append(run)
     with LOG_LOCK:
-        _write_log(run)
+        with open(LOG, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=LOG_FIELDS)
+            w.writeheader()
+            for run in runs:
+                w.writerows(_log_rows(run))
         with open(LOG, "rb") as f:
             return f.read()
 
 
-def _write_log(run: dict):
-    if os.path.exists(LOG):                     # log written by an older version of this page
-        with open(LOG, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            header, old_rows = reader.fieldnames or [], list(reader)
-        if header != LOG_FIELDS:
-            if set(header) <= set(LOG_FIELDS):  # only columns were added: rewrite with the new ones
-                with open(LOG, "w", newline="", encoding="utf-8") as f:
-                    w = csv.DictWriter(f, fieldnames=LOG_FIELDS)
-                    w.writeheader()
-                    w.writerows(old_rows)
-            else:                               # incompatible: keep it aside
-                os.replace(LOG, os.path.join(TESTS, f"log_old_{run['id']}.csv"))
-    new = not os.path.exists(LOG)
-    with open(LOG, "a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=LOG_FIELDS)
-        if new:
-            w.writeheader()
-        for s in run["sides"]:
-            c, wr = s["centering"] or {}, s["wear"] or {}
-            zones = wr.get("corners", []) + wr.get("edges", [])
-            warnings = c.get("warnings", []) + [x for x in wr.get("warnings", []) if x not in c.get("warnings", [])]
-            errors = [e for e in (s["error"], s["centering_error"], s["wear_error"]) if e]
-            w.writerow({
-                "time": run["time"], "run": run["id"], "tester": run.get("tester", ""),
-                "name": run["name"], "side": s["side"],
-                "cropped": run["cropped"], "actual_grade": run["actual_grade"], "ceiling": run["ceiling"],
-                "measured_lr": s["measured_lr"], "measured_tb": s["measured_tb"],
-                "ref_lr": s["ref_lr"], "ref_tb": s["ref_tb"], "err_lr": s["err_lr"], "err_tb": s["err_tb"],
-                "worst_pct": c.get("worst_pct"), "uncertainty_pct": c.get("uncertainty_pct"),
-                "centering_max_grade": c.get("max_grade"), "borderline": c.get("borderline"),
-                "centering_reliable": c.get("reliable"),
-                "corners_max_grade": wr.get("corners_max_grade"), "edges_max_grade": wr.get("edges_max_grade"),
-                "wear_levels": " ".join(f"{SHORT[z['name']]}:{z['level']}" for z in zones),
-                "wear_reliable": wr.get("reliable"),
-                "warnings": " | ".join(warnings), "error": " | ".join(errors),
-            })
+def _log_rows(run: dict) -> list[dict]:
+    rows = []
+    for s in run["sides"]:
+        c, wr = s.get("centering") or {}, s.get("wear") or {}
+        zones = wr.get("corners", []) + wr.get("edges", [])
+        warnings = c.get("warnings", []) + [x for x in wr.get("warnings", []) if x not in c.get("warnings", [])]
+        errors = [e for e in (s.get("error"), s.get("centering_error"), s.get("wear_error")) if e]
+        rows.append({
+            "time": run["time"], "run": run["id"], "tester": run.get("tester", ""),
+            "name": run.get("name", ""), "side": s["side"],
+            "cropped": run.get("cropped"), "actual_grade": run.get("actual_grade"), "ceiling": run.get("ceiling"),
+            "measured_lr": s.get("measured_lr"), "measured_tb": s.get("measured_tb"),
+            "ref_lr": s.get("ref_lr"), "ref_tb": s.get("ref_tb"), "err_lr": s.get("err_lr"), "err_tb": s.get("err_tb"),
+            "worst_pct": c.get("worst_pct"), "uncertainty_pct": c.get("uncertainty_pct"),
+            "centering_max_grade": c.get("max_grade"), "borderline": c.get("borderline"),
+            "centering_reliable": c.get("reliable"),
+            "corners_max_grade": wr.get("corners_max_grade"), "edges_max_grade": wr.get("edges_max_grade"),
+            "wear_levels": " ".join(f"{SHORT[z['name']]}:{z['level']}" for z in zones),
+            "wear_reliable": wr.get("reliable"),
+            "warnings": " | ".join(warnings), "error": " | ".join(errors),
+        })
+    return rows
 
 
 def _history():
@@ -268,8 +274,16 @@ def upload():
     _summarise(run)
     with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
         json.dump(run, f, indent=2)
-    hf_storage.save_run(TESTS, run_id, _log(run))
+    hf_storage.save_run(TESTS, run_id, _rebuild_log())
+    github_results.save_run(TESTS, run_id, run["tester"])
     return redirect(url_for("index", run=run_id))
+
+
+@app.post("/sync")
+def sync():
+    """Refresh button: upload anything pending and download the team's new tests."""
+    github_results.sync(TESTS, "Refresh")
+    return redirect(url_for("index") + "#history")
 
 
 @app.get("/")
@@ -282,9 +296,11 @@ def index():
             run = json.load(f)
         if "ceiling" not in run:          # run saved by the first version of this page
             run = None
+    _rebuild_log()                        # picks up tests that arrived from teammates
     rows, stats = _history()
     return render_template_string(PAGE, run=run, rows=rows, stats=stats,
-                                  missing=bool(request.args.get("missing")))
+                                  missing=bool(request.args.get("missing")),
+                                  sharing=github_results.status)
 
 
 @app.get("/tests/<run_id>/<name>")
@@ -470,7 +486,17 @@ PAGE = """<!doctype html>
 Whitening: magenta = whitened pixels; corner boxes and edge bars are coloured by level (green clean, orange tiny/minor/slight, red moderate/heavy, grey not measurable).</p>
 {% endif %}
 
-<h2>History</h2>
+<h2 id="history">History</h2>
+<div class="row" style="margin:0 0 12px">
+  {% if sharing.state == "ok" %}<span class="tag ok">shared with the team</span>
+  {% elif sharing.state == "syncing" %}<span class="tag warn">uploading…</span>
+  {% elif sharing.state == "error" %}<span class="tag bad">not shared</span>
+  {% else %}<span class="tag muted">this PC only</span>{% endif %}
+  <span class="note">{{ sharing.message }}{% if sharing.time %} ({{ sharing.time }}){% endif %}</span>
+  {% if sharing.state != "local" %}
+  <form method="post" action="{{ url_for('sync') }}" style="margin:0"><button type="submit">Refresh team history</button></form>
+  {% endif %}
+</div>
 {% if stats.all or stats.grades %}
 <div class="stats">
   {% if stats.all %}
@@ -526,12 +552,23 @@ def main(argv=None):
     ap.add_argument("--deploy", action="store_true",
                     help="run on a hosting service: $PORT, $GRADEWISE_PASSWORD, $DATA_DIR")
     ap.add_argument("--port", type=int, default=5000)
+    ap.add_argument("--open", action="store_true", help="open the site in the browser once it's up")
     args = ap.parse_args(argv)
     os.makedirs(TESTS, exist_ok=True)
 
+    if not args.deploy:
+        if github_results.repo_url():
+            print("Connecting to the team's results on GitHub (a sign-in window may open the first time)…")
+        github_results.setup(TESTS)
+        print(f"Results: {github_results.status['message']}")
     if not (args.share or args.deploy):
-        print(f"GradeWise test site (only this PC): http://127.0.0.1:{args.port}")
-        app.run(host="127.0.0.1", port=args.port)
+        url = f"http://127.0.0.1:{args.port}"
+        print(f"GradeWise test site (only this PC): {url}   (close this window to stop it)")
+        if args.open:
+            import webbrowser
+            threading.Timer(1.5, webbrowser.open, args=(url,)).start()
+        from waitress import serve
+        serve(app, host="127.0.0.1", port=args.port, threads=4)
         return
 
     PASSWORD = os.environ.get("GRADEWISE_PASSWORD")
