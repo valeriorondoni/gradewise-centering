@@ -161,7 +161,7 @@ Making this card work required three changes, all now in the code:
 4. **Borderless cards** (some sports and modern cards) have no border to measure; the checker refuses them.
 5. **Photo rules:** card out of its sleeve, flat, on a plain background that contrasts with the border, card at least ~1000 px wide in the photo, no direct glare. The blur threshold still needs tuning on real phone photos.
 6. Assumes standard 63 × 88 mm cards (Pokémon, Magic, One Piece, standard sports). Mini or oversized cards need different dimensions.
-7. **Whitening needs a dark background.** On a light background the blended edge pixels look like whitening; the tool skips them and marks the result unreliable. Glare on the border also reads as whitening (the glare warning catches large patches).
+7. **Whitening needs a dark background (any dark surface, not necessarily black); centering doesn't.** Centering only needs a plain background that contrasts with the border. On a light background the blended edge pixels look like whitening, so the test site marks whitening "skipped" and the test still counts for centering (ceiling = centering only). Glare on the border also reads as whitening (the glare warning catches large patches).
 8. **Whitening can't be measured where the border isn't a flat colour** (old Japanese swirl backs, full-art and silver borders) or is already near white (white-border cards). Those zones are reported as "unknown", not guessed.
 9. **Slab photos are a poor input for whitening:** the slab's bright plastic rim can touch the card edge and read as whitening (seen on a Donphan slab scan). Photograph the bare card.
 10. Corner radius is assumed to be 3 mm. Surface (scratches, print lines, dents) is not checked yet.

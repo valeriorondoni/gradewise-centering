@@ -51,7 +51,7 @@ LOG = os.path.join(TESTS, "log.csv")
 LOG_FIELDS = ["time", "run", "tester", "name", "side", "cropped", "actual_grade", "ceiling",
               "measured_lr", "measured_tb", "ref_lr", "ref_tb", "err_lr", "err_tb",
               "worst_pct", "uncertainty_pct", "centering_max_grade", "borderline", "centering_reliable",
-              "corners_max_grade", "edges_max_grade", "wear_levels", "wear_reliable",
+              "corners_max_grade", "edges_max_grade", "wear_levels", "wear_reliable", "wear_skipped",
               "warnings", "error"]
 SHORT = {"top-left": "TL", "top-right": "TR", "bottom-right": "BR", "bottom-left": "BL",
          "top": "T", "right": "R", "bottom": "B", "left": "L"}
@@ -163,15 +163,31 @@ def _run_side(file, side: str, cropped: bool, run_dir: str, ref_lr: str, ref_tb:
     return out
 
 
+# Start of the warning wear.py gives when the background is light (see analyse_wear)
+LIGHT_BACKGROUND = "Light background"
+
+
+def _wear_skipped(wear: dict | None) -> bool:
+    """Whitening can't be measured on a light background: a clean edge blends into
+    it and looks white. That's a limit of the photo, not a failed test, so the
+    whitening part is skipped and the test still counts for centering."""
+    return bool(wear) and any(w.startswith(LIGHT_BACKGROUND) for w in wear.get("warnings", []))
+
+
 def _summarise(run: dict):
-    """Overall ceiling = lowest of every cap that could be measured."""
-    c = [s["centering"]["max_grade"] for s in run["sides"] if s["centering"]]
-    w = [s["wear"]["max_grade"] for s in run["sides"] if s["wear"]]
+    """Overall ceiling = lowest of every cap that could be measured. Whitening
+    only counts when it was measured on both sides."""
+    for s in run["sides"]:
+        s["wear_skipped"] = _wear_skipped(s.get("wear"))
+    c = [s["centering"]["max_grade"] for s in run["sides"] if s.get("centering")]
+    w = [s["wear"]["max_grade"] for s in run["sides"] if s.get("wear") and not s["wear_skipped"]]
     run["centering_cap"] = min(c) if len(c) == 2 else None
     run["wear_cap"] = min(w) if len(w) == 2 else None
+    run["wear_skipped"] = any(s["wear_skipped"] for s in run["sides"])
     caps = [x for x in (run["centering_cap"], run["wear_cap"]) if x is not None]
-    run["ceiling"] = min(caps) if len(caps) == 2 else None
-    run["reliable"] = all(s["centering"] and s["centering"]["reliable"] and s["wear"] and s["wear"]["reliable"]
+    run["ceiling"] = min(caps) if run["centering_cap"] is not None and (run["wear_cap"] or run["wear_skipped"]) else None
+    run["reliable"] = all(s.get("centering") and s["centering"]["reliable"]
+                          and (s["wear_skipped"] or (s.get("wear") and s["wear"]["reliable"]))
                           for s in run["sides"])
 
 
@@ -218,7 +234,7 @@ def _log_rows(run: dict) -> list[dict]:
             "centering_reliable": c.get("reliable"),
             "corners_max_grade": wr.get("corners_max_grade"), "edges_max_grade": wr.get("edges_max_grade"),
             "wear_levels": " ".join(f"{SHORT[z['name']]}:{z['level']}" for z in zones),
-            "wear_reliable": wr.get("reliable"),
+            "wear_reliable": wr.get("reliable"), "wear_skipped": _wear_skipped(wr),
             "warnings": " | ".join(warnings), "error": " | ".join(errors),
         })
     return rows
@@ -296,6 +312,9 @@ def index():
             run = json.load(f)
         if "ceiling" not in run:          # run saved by the first version of this page
             run = None
+        else:                             # runs saved before light backgrounds were "skipped"
+            for s in run["sides"]:
+                s.setdefault("wear_skipped", _wear_skipped(s.get("wear")))
     _rebuild_log()                        # picks up tests that arrived from teammates
     rows, stats = _history()
     return render_template_string(PAGE, run=run, rows=rows, stats=stats,
@@ -367,7 +386,8 @@ PAGE = """<!doctype html>
   <summary><strong>How to take the photos</strong> (most failed tests come from the photo, not the tool)</summary>
   <ul style="margin:10px 0 0; padding-left:20px">
     <li><b>Bare card</b>: out of its sleeve, top loader or slab.</li>
-    <li><b>Plain dark surface</b> (black cloth, dark desk), with background visible on all four sides of the card.</li>
+    <li><b>Plain background</b> (no pattern or clutter) that contrasts with the card's border, visible on all four sides. That's enough for <b>centering</b>.</li>
+    <li><b>For whitening, any dark surface</b>: a mouse pad, a dark T-shirt or notebook cover, a dark desk, a switched-off screen. On a light background a clean edge looks like whitening, so whitening is skipped and only centering counts.</li>
     <li><b>From straight above</b>, card filling most of the photo, sharp, no reflections or direct light on it.</li>
     <li><b>Original photo file</b>: not a thumbnail, screenshot, or image sent through WhatsApp/Telegram (they shrink it). The card should be at least 1000 px wide.</li>
     <li><b>Cards with a normal coloured border</b> (e.g. yellow Pokémon fronts, blue backs). Full-art, illustration rare and silver-border cards aren't supported yet.</li>
@@ -421,8 +441,8 @@ PAGE = """<!doctype html>
 <h2>Result{% if run.name %}: {{ run.name }}{% endif %}{% if run.tester %} <span class="note">· tested by {{ run.tester }}</span>{% endif %}</h2>
 <div class="box summary">
   <div>Centering allows<br><b>{{ "PSA %d"|format(run.centering_cap) if run.centering_cap else "–" }}</b></div>
-  <div>Whitening allows<br><b>{{ "PSA %d"|format(run.wear_cap) if run.wear_cap else "–" }}</b></div>
-  <div>Ceiling so far<br><b>{{ "PSA %d"|format(run.ceiling) if run.ceiling else "–" }}</b></div>
+  <div>Whitening allows<br><b>{{ "PSA %d"|format(run.wear_cap) if run.wear_cap else ("skipped" if run.wear_skipped else "–") }}</b></div>
+  <div>{{ "Ceiling (centering only)" if run.wear_skipped and not run.wear_cap else "Ceiling so far" }}<br><b>{{ "PSA %d"|format(run.ceiling) if run.ceiling else "–" }}</b></div>
   {% if run.actual_grade %}<div>Real grade<br><b>PSA {{ "%g"|format(run.actual_grade) }}</b>
     {% if run.ceiling and run.ceiling < run.actual_grade %}<span class="tag bad">ceiling below real grade</span>{% endif %}</div>{% endif %}
   <div>{% if run.reliable %}<span class="tag ok">reliable</span>{% else %}<span class="tag bad">unreliable: see warnings</span>{% endif %}</div>
@@ -460,6 +480,10 @@ PAGE = """<!doctype html>
     <h3>Whitening (corners and edges)</h3>
     {% if s.wear_error %}
       <p class="err">{{ s.wear_error }}</p>
+    {% elif s.wear_skipped %}
+      <span class="tag muted">skipped</span>
+      <p class="note" style="margin:8px 0 0">Light background: a clean edge blends into it and looks white, so whitening
+        can't be measured on this photo. Centering above is unaffected. For whitening, photograph the card on any dark surface.</p>
     {% elif s.wear %}{% set w = s.wear %}
       <span class="tag {{ 'ok' if w.reliable else 'bad' }}">{{ "reliable" if w.reliable else "unreliable" }}</span>
       <p style="margin:8px 0">Corners allow <b>PSA {{ w.corners_max_grade }}</b> · edges allow <b>PSA {{ w.edges_max_grade }}</b></p>
@@ -529,11 +553,13 @@ Whitening: magenta = whitened pixels; corner boxes and edge bars are coloured by
     <td class="num">{{ r.measured_lr or "–" }}</td><td class="num">{{ r.ref_lr or "–" }}</td><td class="num">{{ r.err_lr or "–" }}</td>
     <td class="num">{{ r.measured_tb or "–" }}</td><td class="num">{{ r.ref_tb or "–" }}</td><td class="num">{{ r.err_tb or "–" }}</td>
     <td class="num">{{ r.centering_max_grade or "–" }}</td>
-    <td class="num">{{ r.corners_max_grade or "–" }}</td><td class="num">{{ r.edges_max_grade or "–" }}</td>
+    {% if r.wear_skipped == "True" %}<td colspan="2" class="note">skipped</td>
+    {% else %}<td class="num">{{ r.corners_max_grade or "–" }}</td><td class="num">{{ r.edges_max_grade or "–" }}</td>{% endif %}
     <td class="num">{{ r.ceiling or "–" }}</td><td class="num">{{ r.actual_grade or "–" }}</td>
     <td>{% if r.error %}<span class="tag bad" title="{{ r.error }}">error</span>
-        {% elif r.centering_reliable == "True" and r.wear_reliable == "True" %}<span class="tag ok">ok</span>
+        {% elif r.centering_reliable == "True" and (r.wear_reliable == "True" or r.wear_skipped == "True") %}<span class="tag ok">ok</span>
         {% else %}<span class="tag bad" title="{{ r.warnings }}">unreliable</span>{% endif %}
+        {% if r.wear_skipped == "True" %}<span class="tag muted" title="Light background: whitening not measured">whitening skipped</span>{% endif %}
         {% if r.borderline == "True" %}<span class="tag warn">borderline</span>{% endif %}</td>
   </tr>
   {% endfor %}
