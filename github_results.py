@@ -23,7 +23,22 @@ from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(HERE, "results_repo.txt")
-GIT = os.environ.get("GRADEWISE_GIT") or shutil.which("git")
+def _find_git() -> str | None:
+    """git on the PATH, or Git for Windows' usual folders: a window opened before
+    Git was installed still has the old PATH and wouldn't find it."""
+    found = os.environ.get("GRADEWISE_GIT") or shutil.which("git")
+    if found:
+        return found
+    for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+        path = os.path.join(base, "Git", "cmd", "git.exe")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+GIT = _find_git()
 IGNORE = "# rebuilt on every PC from the run.json files\nlog.csv\nlog_old_*.csv\n"
 AUTHOR_EMAIL = "gradewise-tests@users.noreply.github.com"
 
