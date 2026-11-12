@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+webtests/
+results/
+samples/
+.git/

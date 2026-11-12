@@ -1,0 +1,20 @@
+# Photos and results uploaded by the team: private, never in the repository
+webtests/
+
+# Personal test runs (the README's example results in results/synthetic and
+# results/charizard_jp stay in)
+results/nuova_carta/
+
+# Local Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets, if you ever keep the password in a file
+.env
+
+# Editor / OS clutter
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

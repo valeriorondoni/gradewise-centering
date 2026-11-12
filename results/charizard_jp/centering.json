@@ -1,0 +1,44 @@
+{
+  "front": {
+    "side": "front",
+    "left_mm": 2.25,
+    "right_mm": 2.18,
+    "top_mm": 2.55,
+    "bottom_mm": 2.06,
+    "left_right": "51/49",
+    "top_bottom": "55/45",
+    "worst_axis": "top/bottom",
+    "worst_pct": 55.4,
+    "uncertainty_pct": 1.2,
+    "max_grade": 9,
+    "max_grade_name": "Mint",
+    "chance_centering_ok_for_10": 0.38,
+    "borderline": true,
+    "reliable": false,
+    "warnings": [
+      "Low resolution: card is only 559 px wide. Move closer or use the main camera (aim for 1000+ px)."
+    ]
+  },
+  "back": {
+    "side": "back",
+    "left_mm": 2.16,
+    "right_mm": 2.29,
+    "top_mm": 2.42,
+    "bottom_mm": 2.24,
+    "left_right": "49/51",
+    "top_bottom": "52/48",
+    "worst_axis": "top/bottom",
+    "worst_pct": 51.9,
+    "uncertainty_pct": 1.2,
+    "max_grade": 10,
+    "max_grade_name": "Gem Mint",
+    "chance_centering_ok_for_10": 1.0,
+    "borderline": false,
+    "reliable": false,
+    "warnings": [
+      "Low resolution: card is only 561 px wide. Move closer or use the main camera (aim for 1000+ px)."
+    ]
+  },
+  "centering_max_grade": 9,
+  "reliable": false
+}

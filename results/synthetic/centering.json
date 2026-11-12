@@ -1,0 +1,40 @@
+{
+  "front": {
+    "side": "front",
+    "left_mm": 2.84,
+    "right_mm": 2.14,
+    "top_mm": 2.59,
+    "bottom_mm": 2.39,
+    "left_right": "57/43",
+    "top_bottom": "52/48",
+    "worst_axis": "left/right",
+    "worst_pct": 57.1,
+    "uncertainty_pct": 0.6,
+    "max_grade": 9,
+    "max_grade_name": "Mint",
+    "chance_centering_ok_for_10": 0.0,
+    "borderline": false,
+    "reliable": true,
+    "warnings": []
+  },
+  "back": {
+    "side": "back",
+    "left_mm": 2.57,
+    "right_mm": 2.53,
+    "top_mm": 3.65,
+    "bottom_mm": 1.55,
+    "left_right": "50/50",
+    "top_bottom": "70/30",
+    "worst_axis": "top/bottom",
+    "worst_pct": 70.2,
+    "uncertainty_pct": 0.6,
+    "max_grade": 10,
+    "max_grade_name": "Gem Mint",
+    "chance_centering_ok_for_10": 1.0,
+    "borderline": false,
+    "reliable": true,
+    "warnings": []
+  },
+  "centering_max_grade": 9,
+  "reliable": true
+}
