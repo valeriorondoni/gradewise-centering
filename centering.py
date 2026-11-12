@@ -86,6 +86,29 @@ def _candidate_masks(small: np.ndarray):
     _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     yield cv2.morphologyEx(otsu, cv2.MORPH_OPEN, k, iterations=2)
     yield cv2.morphologyEx(255 - otsu, cv2.MORPH_OPEN, k, iterations=2)
+    yield _background_mask(small)
+
+
+def _background_mask(small: np.ndarray) -> np.ndarray:
+    """Everything whose colour differs from the background, learned from the photo's border.
+
+    A dark blue Pokemon back on black cloth is close to the cloth in brightness,
+    so the edge masks merge the card with the cloth's folds and Otsu splits the
+    card's bright artwork from its dark border instead. The background itself is
+    uniform, though: anything that isn't background-coloured is the card.
+    """
+    lab = cv2.cvtColor(cv2.GaussianBlur(small, (7, 7), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+    h, w = lab.shape[:2]
+    b = max(4, int(0.03 * min(h, w)))
+    ring = np.concatenate([lab[:b].reshape(-1, 3), lab[-b:].reshape(-1, 3),
+                           lab[:, :b].reshape(-1, 3), lab[:, -b:].reshape(-1, 3)])
+    bg = np.median(ring, axis=0)
+    spread = np.percentile(np.linalg.norm(ring - bg, axis=1), 90)     # how much the background varies
+    dist = np.linalg.norm((lab - bg) * [1.0, 2.0, 2.0], axis=2)       # colour counts more than brightness
+    mask = (dist > max(12.0, 1.5 * spread)).astype(np.uint8) * 255
+    k = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=2)
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=4)
 
 
 def find_card(img: np.ndarray) -> np.ndarray | None:
