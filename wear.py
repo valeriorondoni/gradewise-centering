@@ -96,26 +96,48 @@ def _card_geometry(fh: int, fw: int):
     cz = CORNER_MM * PPM
     left, right, top, bottom = xx < x0 + cz, xx > x1 - cz, yy < y0 + cz, yy > y1 - cz
     corners = dict(zip(CORNERS, (top & left, top & right, bottom & right, bottom & left)))
-    return depth, outside, side_idx, pos, corners
+    # where the outline curves: the real radius varies a little between cards
+    arc = ((xx < x0 + r) | (xx > x1 - r)) & ((yy < y0 + r) | (yy > y1 - r))
+    return depth, outside, side_idx, pos, corners, arc
 
 
-def _ink_reference(lab, depth, side_idx, pos, work):
-    """Median border ink per side segment. Returns (ref colour per pixel, usable mask)."""
+def _ink_reference(lab, depth, side_idx, pos, work, arc, bg):
+    """Median border ink per side segment. Returns (ref colour per pixel, usable mask).
+
+    Background must not count as ink. Near the corners the real edge drifts a
+    little inside the straight outline (lens distortion, the corner's own shape),
+    so the sample strip there can be a third background; that made a plain
+    border look "not a flat colour". So: no samples on the corner curve, and
+    sample pixels that look more like the background than the ink are dropped."""
     ref = np.zeros_like(lab)
     ok = np.zeros(depth.shape, bool)
     seg = (pos // (SEGMENT_MM * PPM)).astype(int)
-    sample = (depth >= REF_MM[0]) & (depth <= REF_MM[1])
+    sample = (depth >= REF_MM[0]) & (depth <= REF_MM[1]) & ~arc
+    deep = depth >= 0.5 * (REF_MM[0] + REF_MM[1])          # inner half: least background
     for s in range(4):
         on = side_idx == s
+        inks, unsampled = {}, []
         for k in np.unique(seg[on & work]):
-            zone = on & (seg == k)
-            px = lab[zone & sample]
+            sel = on & (seg == k) & sample
+            px = lab[sel]
+            if len(px) >= 50:
+                inner = px[deep[sel]]
+                ink0 = np.median(inner if len(inner) >= 20 else px, axis=0)
+                px = px[np.linalg.norm(px - ink0, axis=1) < np.linalg.norm(px - bg, axis=1)]
             if len(px) < 50:
+                unsampled.append(k)          # (almost) all on the curve: borrow below
                 continue
             m = np.median(px, axis=0)
             spread = np.median(np.linalg.norm(px - m, axis=1))
             if spread > 12 or np.linalg.norm(WHITE_LAB - m) < MIN_CONTRAST:
                 continue                     # artwork / holo / thin border, or ink already near white
+            inks[k] = m
+        for k in unsampled:                  # nothing to sample, not bad ink: use the neighbour's
+            near = [j for j in (k - 1, k + 1) if j in inks]
+            if near:
+                inks[k] = inks[near[0]]
+        for k, m in inks.items():
+            zone = on & (seg == k)
             ref[zone] = m
             ok[zone] = True
     return ref, ok
@@ -142,9 +164,10 @@ def analyse_wear(img: np.ndarray, side: str = "front", cropped: bool = False):
 
     fh, fw = flat.shape[:2]
     lab = cv2.cvtColor(flat, cv2.COLOR_BGR2LAB).astype(np.float32)
-    depth, outside, side_idx, pos, corner_masks = _card_geometry(fh, fw)
+    depth, outside, side_idx, pos, corner_masks, arc = _card_geometry(fh, fw)
     work = (depth > 0) & (depth <= BAND_MM)
-    ref, ok = _ink_reference(lab, depth, side_idx, pos, work)
+    bg = np.median(lab[(outside > 0.3) & (outside < 2.0)], axis=0)
+    ref, ok = _ink_reference(lab, depth, side_idx, pos, work, arc, bg)
     warnings = quality_warnings(img, quad, flat)
 
     # A light background blends with the ink along the outline and looks like
@@ -152,7 +175,6 @@ def analyse_wear(img: np.ndarray, side: str = "front", cropped: bool = False):
     skip_mm = 0.0
     if ok.any():
         ink = np.median(ref[ok], axis=0)
-        bg = np.median(lab[(outside > 0.3) & (outside < 2.0)], axis=0)
         d = WHITE_LAB - ink
         if np.dot(bg - ink, d) / np.dot(d, d) >= 0.4:
             skip_mm = 2.5 * src_px_mm

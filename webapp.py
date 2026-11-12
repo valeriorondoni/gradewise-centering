@@ -490,6 +490,7 @@ Whitening: magenta = whitened pixels; corner boxes and edge bars are coloured by
 <div class="row" style="margin:0 0 12px">
   {% if sharing.state == "ok" %}<span class="tag ok">shared with the team</span>
   {% elif sharing.state == "syncing" %}<span class="tag warn">uploading…</span>
+    <script>setTimeout(function () { location.reload(); }, 4000);  // show the result when it's done</script>
   {% elif sharing.state == "error" %}<span class="tag bad">not shared</span>
   {% else %}<span class="tag muted">this PC only</span>{% endif %}
   <span class="note">{{ sharing.message }}{% if sharing.time %} ({{ sharing.time }}){% endif %}</span>
