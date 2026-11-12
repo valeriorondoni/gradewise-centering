@@ -1,19 +1,28 @@
-# Container for hosting the test site (Render, Railway, Fly.io, Hugging Face Spaces...)
+# Container for hosting the test site. Built for Hugging Face Spaces (Docker
+# SDK); also works on Render, Railway, Fly.io...
 #
-# The host must set:
-#   GRADEWISE_PASSWORD  team password (8+ plain characters)
-#   DATA_DIR            folder on a persistent disk, e.g. /data (otherwise the
-#                       test history is lost on every restart)
-# PORT is set by the host; 8000 is used when it isn't.
+# Set on the host (on Spaces: Settings -> Variables and secrets):
+#   GRADEWISE_PASSWORD  secret: team password (8+ plain characters)
+#   HF_TOKEN            secret: Hugging Face token with write access to the dataset
+#   HF_DATASET          variable: dataset that keeps the test history,
+#                       e.g. your-name/gradewise-tests (created private if missing)
+# Instead of HF_DATASET, a host with a persistent disk can set DATA_DIR to it.
 FROM python:3.12-slim
 
-WORKDIR /app
-ENV PYTHONUNBUFFERED=1
+# Spaces run the container as user 1000: give it a home it can write to
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR $HOME/app
 
-COPY *.py ./
+COPY --chown=user requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+COPY --chown=user *.py ./
 
 EXPOSE 8000
 CMD ["python", "webapp.py", "--deploy"]

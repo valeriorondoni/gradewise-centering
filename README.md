@@ -51,21 +51,43 @@ PC is on, awake and running both terminals. All results land in this PC's
 `webtests/`, so the whole team shares one history. The "Tested by" field
 records who uploaded what.
 
-### Hosting (always on, fixed link)
+### Hosting for free on Hugging Face Spaces (always on, fixed link)
 
-The code lives on GitHub; a hosting service builds the site from the
-repository with the `Dockerfile` and redeploys on every push. Any host that
-runs Docker works (Render, Railway, Fly.io, Hugging Face Spaces). On the host:
+The code lives on GitHub. A GitHub workflow copies the site to a Hugging Face
+Space (Docker, free CPU tier: 2 vCPU, 16 GB RAM, sleeps after 48 h without
+visits) on every push. Spaces wipe their disk on restart, so every test is
+also saved to a **private Hugging Face dataset** and restored at startup:
+the shared history survives restarts and redeploys.
 
-1. Create a web service from the GitHub repository, using the Dockerfile.
-2. Set the environment variable `GRADEWISE_PASSWORD` (8+ plain characters). Without it the site refuses to start, so it is never online without a password.
-3. Attach a **persistent disk**, mount it at `/data` and set `DATA_DIR=/data`. Without it the test history and uploaded photos are wiped on every restart or redeploy (free plans usually have no persistent disk).
+One-time setup:
 
-`python webapp.py --deploy` is what the container runs: it listens on `$PORT`
-on all interfaces and stores tests in `$DATA_DIR`.
+1. **Hugging Face account** (free) at huggingface.co.
+2. **Access token**: Settings → Access Tokens → *Create new token*, type *Write*. Keep it secret.
+3. **Space**: *New Space* → name e.g. `gradewise-test`, SDK **Docker** (blank template), hardware **CPU basic (free)**. Public or private: see the note below.
+4. **Space secrets and variables** (Space → Settings → *Variables and secrets*):
+   - secret `GRADEWISE_PASSWORD`: the team password (8+ plain characters). Without it the site refuses to start.
+   - secret `HF_TOKEN`: the token from step 2.
+   - variable `HF_DATASET`: e.g. `your-name/gradewise-tests`. It is created private on first start.
+5. **GitHub repository** → Settings → *Secrets and variables* → Actions:
+   - secret `HF_TOKEN`: the same token.
+   - variable `HF_SPACE`: e.g. `your-name/gradewise-test`.
+6. Push to `main` (or run the workflow by hand from the *Actions* tab). The Space builds in a few minutes and the site is at `https://your-name-gradewise-test.hf.space`.
 
-What goes into the repository is set by `.gitignore`: the team's uploads
-(`webtests/`), the local `.venv/` and personal runs stay out.
+Without GitHub Actions you can deploy by hand: `python deploy_space.py --space your-name/gradewise-test`
+(with `HF_TOKEN` set). Only the Python files, `requirements.txt`, the
+`Dockerfile` and `space/README.md` go to the Space.
+
+**Public or private Space?** A *public* Space's code is visible to anyone on
+Hugging Face (the site itself still needs the team password, and the test
+photos stay in the private dataset). A *private* Space keeps the code hidden,
+but then every teammate needs a Hugging Face account with access to it.
+
+Other hosts work too with the same `Dockerfile` (Render, Railway, Fly.io): set
+`GRADEWISE_PASSWORD`, and either `HF_DATASET` + `HF_TOKEN` as above or a
+persistent disk with `DATA_DIR` pointing at it.
+
+What goes into the GitHub repository is set by `.gitignore`: the team's
+uploads (`webtests/`), the local `.venv/` and personal runs stay out.
 
 ## Whitening on corners and edges (step 2)
 
@@ -170,5 +192,7 @@ Making this card work required three changes, all now in the code:
 - `test_wear.py`: whitening accuracy test
 - `webapp.py`: test site (Flask): local, shared through a tunnel, or hosted
 - `Dockerfile`, `.dockerignore`: container for hosting the site
+- `hf_storage.py`: keeps the hosted site's test history in a private Hugging Face dataset
+- `deploy_space.py`, `space/README.md`, `.github/workflows/deploy-space.yml`: deploy to the Hugging Face Space
 - `.gitignore`: keeps uploads, the local environment and personal runs out of git
 - `samples/`: two synthetic photos, the raw card cropped from the pitch slide, and `real/` with the Japanese Charizard front and back

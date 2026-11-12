@@ -6,8 +6,9 @@
                               on a multi-user server, ready to put behind a tunnel
                               (cloudflared tunnel --protocol http2 --url http://localhost:5000)
     python webapp.py --deploy on a hosting service: listens on $PORT, takes the
-                              password from $GRADEWISE_PASSWORD and stores tests
-                              in $DATA_DIR (see README, "Hosting")
+                              password from $GRADEWISE_PASSWORD, stores tests in
+                              $DATA_DIR and mirrors them to the Hugging Face
+                              dataset $HF_DATASET (see README, "Hosting")
 
 Upload the front and back of a card. Optionally type the centering you
 measured by hand (e.g. 52/48) and, for a slabbed card, its real PSA grade.
@@ -36,6 +37,7 @@ from flask import (Flask, Response, abort, redirect, render_template_string, req
                    send_from_directory, url_for)
 
 from centering import analyse
+import hf_storage
 from wear import analyse_wear
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -169,9 +171,12 @@ def _summarise(run: dict):
                           for s in run["sides"])
 
 
-def _log(run: dict):
+def _log(run: dict) -> bytes:
+    """Append the run to log.csv; returns the whole log as it is now."""
     with LOG_LOCK:
         _write_log(run)
+        with open(LOG, "rb") as f:
+            return f.read()
 
 
 def _write_log(run: dict):
@@ -263,7 +268,7 @@ def upload():
     _summarise(run)
     with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
         json.dump(run, f, indent=2)
-    _log(run)
+    hf_storage.save_run(TESTS, run_id, _log(run))
     return redirect(url_for("index", run=run_id))
 
 
@@ -549,8 +554,11 @@ def main(argv=None):
     from waitress import serve
     if args.deploy:
         port = int(os.environ.get("PORT", "8000"))
-        if not os.environ.get("DATA_DIR"):
-            print("Warning: DATA_DIR is not set; test history is lost whenever the host restarts.")
+        if hf_storage.enabled():
+            hf_storage.restore(TESTS)
+        elif not os.environ.get("DATA_DIR"):
+            print("Warning: neither HF_DATASET nor DATA_DIR is set; "
+                  "test history is lost whenever the host restarts.")
         print(f"GradeWise test site on port {port}, data in {TESTS}")
         serve(app, host="0.0.0.0", port=port, threads=4)
         return
