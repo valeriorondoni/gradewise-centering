@@ -16,7 +16,9 @@ How it works
    holo, a border too thin) or is already near white are marked unmeasurable.
 4. A pixel within 1.5 mm of the edge counts as whitened when it has moved at
    least 40% of the way from the local ink colour toward white, in roughly
-   that direction (not just a different colour).
+   that direction (not just a different colour). On bright, colourful inks
+   (yellow) it must also have lost at least 60% of the ink's colour: a paler
+   yellow from sheen or JPEG colour blur at the edge is not paper white.
 5. Keep only whitened spots that touch the card outline: real wear starts at
    the edge, white print details further in don't count.
 6. Report per corner (4 x 4 mm zones) the whitened area in mm^2, and per edge
@@ -44,6 +46,7 @@ REF_MM = (0.4, 1.4)        # where the border ink colour is sampled
 SEGMENT_MM = 4.0           # ink colour is learned per segment of this length
 WHITE_LAB = np.array([242, 128, 128], np.float32)   # paper white in OpenCV 8-bit Lab
 WHITE_T = 0.4              # share of the way from ink to white a pixel must have moved
+CHROMA_LOSS_T = 0.6        # bright, colourful inks (yellow): share of the ink's chroma that must be gone
 MIN_CONTRAST = 40.0       # ink closer to white than this: whitening can't be seen
 MIN_MEASURABLE = 0.7       # share of a zone that must have a usable ink reference
 
@@ -144,13 +147,29 @@ def _ink_reference(lab, depth, side_idx, pos, work, arc, bg):
 
 
 def _whitish(lab, ref):
-    """Pixels that moved at least halfway from the ink colour toward white."""
+    """Pixels that moved at least 40% of the way from the ink colour toward white.
+
+    For bright, colourful inks (yellow: the ink is already nearly as light as
+    paper, so the step to white is mostly a loss of colour) that isn't enough.
+    A paler yellow keeps its hue and loses only part of its colour: light
+    falloff, sheen on the cut edge, and above all JPEG colour blur, which stores
+    colour at lower resolution than brightness, so along a dark background the
+    outermost border pixels keep full brightness but only about half their
+    colour. Paper white is nearly grey, so for these inks a pixel must also have
+    lost at least CHROMA_LOSS_T of the ink's chroma, and not be clearly darker
+    than the ink (that is a blend with a dark background, not paper)."""
     d = WHITE_LAB - ref
     c2 = (d ** 2).sum(-1) + 1e-6
     rel = lab - ref
     t = (rel * d).sum(-1) / c2
     perp = np.linalg.norm(rel - t[..., None] * d, axis=-1)
-    return (t >= WHITE_T) & (perp <= 0.5 * np.sqrt(c2))
+    white = (t >= WHITE_T) & (perp <= 0.5 * np.sqrt(c2))
+    ink_chroma = np.hypot(ref[..., 1] - 128, ref[..., 2] - 128)
+    chroma = np.hypot(lab[..., 1] - 128, lab[..., 2] - 128)
+    colourful = ink_chroma > WHITE_LAB[0] - ref[..., 0]       # step to white is mostly colour
+    lost = 1 - chroma / np.maximum(ink_chroma, 1)
+    lighter = lab[..., 0] >= ref[..., 0] - 10                 # paper is lighter than yellow ink
+    return white & (~colourful | ((lost >= CHROMA_LOSS_T) & lighter))
 
 
 # ------------------------------------------------------------ analysis --

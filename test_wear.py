@@ -6,6 +6,9 @@ JPEG) and checks that wear.py
 (a) finds nothing on clean cards,
 (b) measures corner area and edge length close to the truth,
 (c) puts every zone in the right level, or at most one level off.
+Some cards also get a pale-yellow sheen along an edge (the border colour mixed
+partly toward white, like light catching the cut edge). That is not wear and
+must not be reported.
 """
 import cv2
 import numpy as np
@@ -19,6 +22,7 @@ PAPER = (238, 240, 240)
 
 # (border colour, card px, [wear spots]); spot = ("corner", name, depth mm, size mm)
 #                                          or ("edge", name, depth mm, start mm, length mm)
+#                                          or ("sheen", name, depth mm, share of the way to white)
 CASES = [
     (YELLOW, 1500, []),
     (BLUE, 1500, []),
@@ -30,6 +34,9 @@ CASES = [
     (BLUE, 1200, [("edge", "top", 0.2, 15, 6), ("edge", "bottom", 0.15, 30, 2)]),
     (YELLOW, 1500, [("edge", "right", 0.25, 40, 8), ("corner", "top-left", 0.5, 3.0)]),
     (BLUE, 1800, [("corner", "top-left", 0.15, 1.0), ("edge", "right", 0.12, 50, 4)]),
+    (YELLOW, 1500, [("sheen", "left", 0.3, 0.45), ("sheen", "bottom", 0.2, 0.4)]),
+    (YELLOW, 750, [("sheen", "right", 0.25, 0.45)]),          # eBay-size photo, ~12 px/mm
+    (YELLOW, 1200, [("sheen", "left", 0.3, 0.45), ("edge", "right", 0.25, 30, 10)]),
 ]
 
 
@@ -48,6 +55,11 @@ def paint_wear(face, alpha, spots, rng):
     for spot in spots:
         # ragged inner boundary, like real fraying
         wobble = cv2.resize(rng.uniform(0.5, 1.2, (H // 40, W // 40)), (W, H), interpolation=cv2.INTER_CUBIC)
+        if spot[0] == "sheen":                # pale border colour along a whole side, not paper
+            _, name, d, mix = spot
+            m = on_side[name] & ~any_corner & (alpha > 0) & (depth <= d)
+            face[m] = ((1 - mix) * face[m] + mix * 255).astype(np.uint8)
+            continue
         if spot[0] == "corner":
             _, name, d, size = spot
             cx = 0 if "left" in name else W
@@ -98,9 +110,9 @@ def main():
                 unit = "mm2" if z.kind == "corner" else "mm"
                 rows.append(f"{'blue' if colour == BLUE else 'yellow':>6} {px}px  {name:<13} "
                             f"true {t:6.2f} {unit:<3} ({t_lvl:<8})  measured {val:6.2f} ({z.level})")
-        if not spots:
+        if all(s[0] == "sheen" for s in spots):
             rows.append(f"{'blue' if colour == BLUE else 'yellow':>6} {px}px  clean card: "
-                        f"{'all clean' if all(z.level == 'clean' for z in got.values()) else 'FALSE WEAR'}")
+                        f"{'(with sheen) ' if spots else ''}{'all clean' if all(z.level == 'clean' for z in got.values()) else 'FALSE WEAR'}")
 
     print("\n".join(rows))
     print(f"\ncorner area error: median {100 * np.median(area_err):.0f}%, max {100 * np.max(area_err):.0f}%")
