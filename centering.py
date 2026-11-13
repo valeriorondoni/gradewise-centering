@@ -116,6 +116,13 @@ def find_card(img: np.ndarray) -> np.ndarray | None:
 
     Every mask can propose quadrilaterals; we keep the LARGEST card-shaped one,
     so the printed frame inside the card can never win over the card itself.
+
+    If nothing passes, a second, more lenient pass runs (so photos that already
+    work are unaffected). It is for dark Pokemon backs on dark cloth or a dark
+    stand: the card edge is real but weak compared with the yellow logo, and the
+    Canny outline of the card may not close. It accepts weaker edges and open
+    outlines, but no side may lie on the photo's own border (a card cut off by
+    the frame).
     """
     h, w = img.shape[:2]
     scale = min(1.0, 1200 / max(h, w))
@@ -123,33 +130,80 @@ def find_card(img: np.ndarray) -> np.ndarray | None:
     area_img = small.shape[0] * small.shape[1]
 
     mag = _edge_magnitude(small)
-    best, best_area = None, 0.0
-    for mask in _candidate_masks(small):
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
-            area = cv2.contourArea(c)
-            if area < 0.03 * area_img or area > 0.98 * area_img or area <= best_area:
-                continue
-            hull = cv2.convexHull(c)
-            approx = cv2.approxPolyDP(hull, 0.03 * cv2.arcLength(hull, True), True)
-            if len(approx) != 4:
-                continue
-            if area / cv2.contourArea(approx) < 0.85:      # must fill its own quad
-                continue
-            q = _order(approx)
-            sides = [np.linalg.norm(q[i] - q[(i + 1) % 4]) for i in range(4)]
-            short, long_ = sorted([(sides[0] + sides[2]) / 2, (sides[1] + sides[3]) / 2])
-            if not 0.55 < short / long_ < 0.9:              # cards are 63/88 = 0.72
-                continue
-            # every side must sit on a real edge (rejects outlines merged with desk texture)
-            q = _refine_with_lines(c.reshape(-1, 2).astype(np.float32), q)
-            if _edge_support(mag, q) < 0.7:
-                continue
-            best, best_area = q, area
+    masks = list(_candidate_masks(small))
+    best = None
+    for lenient in (False, True):
+        best, best_area = None, 0.0
+        for mask in masks:
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+                area = cv2.contourArea(c)
+                if area > 0.98 * area_img:
+                    continue
+                if not lenient and (area < 0.03 * area_img or area <= best_area):
+                    continue
+                hull = cv2.convexHull(c)
+                approx = cv2.approxPolyDP(hull, 0.03 * cv2.arcLength(hull, True), True)
+                if len(approx) != 4:
+                    continue
+                quad_area = cv2.contourArea(approx)
+                outline = area / quad_area < 0.85               # must fill its own quad...
+                if outline and not lenient:
+                    continue
+                if outline:
+                    area = quad_area                           # ...or be its open outline (checked below)
+                if area < 0.03 * area_img or area <= best_area:
+                    continue
+                q = _order(approx)
+                sides = [np.linalg.norm(q[i] - q[(i + 1) % 4]) for i in range(4)]
+                short, long_ = sorted([(sides[0] + sides[2]) / 2, (sides[1] + sides[3]) / 2])
+                if not 0.55 < short / long_ < 0.9:              # cards are 63/88 = 0.72
+                    continue
+                # every side must sit on a real edge (rejects outlines merged with desk texture)
+                q = _refine_with_lines(c.reshape(-1, 2).astype(np.float32), q)
+                if outline and not _is_outline_of(c, q):
+                    continue
+                if lenient:
+                    if _edge_support(mag, q, 0.18) < 0.7 or _touches_border(q, small.shape):
+                        continue
+                elif _edge_support(mag, q) < 0.7:
+                    continue
+                best, best_area = q, area
+        if best is not None:
+            break
     if best is None:
         return None
     quad = _expand_if_inner_frame(img, best / scale)
     return _refine_in_flat(img, quad)
+
+
+def _is_outline_of(contour: np.ndarray, quad: np.ndarray) -> bool:
+    """True if (nearly) all contour points lie on the quad's sides: an edge trace
+    of the card that didn't close, rather than a blob merged with the desk.
+    `quad` should be the line-fitted one (approxPolyDP cuts corners)."""
+    pts = contour.reshape(-1, 2).astype(np.float32)
+    q = quad.reshape(-1, 2).astype(np.float32)
+    d = np.full(len(pts), np.inf, np.float32)
+    for i in range(4):
+        a, b = q[i], q[(i + 1) % 4]
+        ab = b - a
+        t = np.clip(((pts - a) @ ab) / max(1e-6, float(ab @ ab)), 0, 1)
+        d = np.minimum(d, np.linalg.norm(pts - (a + t[:, None] * ab), axis=1))
+    tol = max(3.0, 0.02 * min(np.linalg.norm(q[1] - q[0]), np.linalg.norm(q[3] - q[0])))
+    return float(np.mean(d < tol)) > 0.85
+
+
+def _touches_border(q: np.ndarray, shape, px: int = 3) -> bool:
+    """True if any side runs along the photo's edge (the card continues outside)."""
+    h, w = shape[:2]
+    for i in range(4):
+        a, b = q[i], q[(i + 1) % 4]
+        pts = a + np.linspace(0.1, 0.9, 20)[:, None] * (b - a)
+        off = ((pts[:, 0] < px) | (pts[:, 0] > w - 1 - px) |
+               (pts[:, 1] < px) | (pts[:, 1] > h - 1 - px))
+        if off.mean() > 0.5:
+            return True
+    return False
 
 
 def _edge_magnitude(small: np.ndarray) -> np.ndarray:
@@ -165,7 +219,7 @@ def _edge_magnitude(small: np.ndarray) -> np.ndarray:
     return mag / max(1.0, float(np.percentile(mag, 99)))
 
 
-def _edge_support(mag: np.ndarray, q: np.ndarray) -> float:
+def _edge_support(mag: np.ndarray, q: np.ndarray, thr: float = 0.25) -> float:
     """Worst side: share of points along that side lying on a strong edge."""
     h, w = mag.shape
     worst = 1.0
@@ -174,7 +228,7 @@ def _edge_support(mag: np.ndarray, q: np.ndarray) -> float:
         pts = a + np.linspace(0.1, 0.9, 60)[:, None] * (b - a)
         xs = np.clip(pts[:, 0].round().astype(int), 0, w - 1)
         ys = np.clip(pts[:, 1].round().astype(int), 0, h - 1)
-        worst = min(worst, float(np.mean(mag[ys, xs] > 0.25)))
+        worst = min(worst, float(np.mean(mag[ys, xs] > thr)))
     return worst
 
 
@@ -222,7 +276,13 @@ def _expand_if_inner_frame(img: np.ndarray, quad: np.ndarray, max_mm: float = 6.
                          [m2 + W + offsets["right"], m2 - offsets["top"]],
                          [m2 + W + offsets["right"], m2 + H + offsets["bottom"]],
                          [m2 - offsets["left"], m2 + H + offsets["bottom"]]], np.float32)
-        quad = cv2.perspectiveTransform(rect[None], np.linalg.inv(m))[0]
+        grown = cv2.perspectiveTransform(rect[None], np.linalg.inv(m))[0]
+        # An "edge" on the photo's own border is the scanner lid or the end of the
+        # frame, and the even strip before it is background, not a card border
+        # (e.g. a tight flatbed scan on white).
+        if _touches_border(grown, img.shape, px=max(3, int(0.005 * min(img.shape[:2])))):
+            return quad
+        quad = grown
     return quad
 
 
@@ -422,6 +482,33 @@ def _first_strong_peak(m: np.ndarray, lo: int, hi: int, rel: float = 0.4) -> int
     return None
 
 
+def _edge_after_quiet_band(m: np.ndarray, lo: int, hi: int, rel: float = 0.5,
+                           snr: float = 3.0) -> int | None:
+    """Fallback for _first_strong_peak: the first peak that stands out from the
+    flat band BEFORE it, not from the whole window.
+
+    Pokemon backs: the dark blue border is flat (gradient ~2-3) but the swirl
+    inside it is textured, so the window's median is 4-8 and "4x the median"
+    puts the bar above a soft inner edge (peak 8-25, the swirl's left side is
+    almost border-coloured). Here the noise level is measured on the border band
+    itself, and the peak must also be one of the strongest in the window.
+    The falling tail of the outer edge (wide on scans, where light catches the
+    cut edge) is skipped first, so it can't count as "the strongest".
+    """
+    while lo + 1 < hi and m[lo + 1] <= m[lo]:
+        lo += 1
+    seg = m[lo:hi]
+    if len(seg) < 8:
+        return None
+    top = seg.max()
+    for k in range(4, len(seg) - 1):
+        band = float(np.median(seg[:k]))
+        if (seg[k] >= max(rel * top, snr * band, 6.0)
+                and seg[k] >= seg[k - 1] and seg[k] >= seg[k + 1]):
+            return lo + k
+    return None
+
+
 def measure_side(lab: np.ndarray, side: str, ramp: int = 4, max_mm: float = 7.0):
     """Border width in pixels on one side: (mean, standard error, usable share, border colour).
 
@@ -441,6 +528,8 @@ def measure_side(lab: np.ndarray, side: str, ramp: int = 4, max_mm: float = 7.0)
     lo = outer_c + ramp + 2
     hi = min(len(med) - 12, lo + int(max_mm * PPM))
     inner_c = _first_strong_peak(med, lo, hi, rel=0.15)
+    if inner_c is None:
+        inner_c = _edge_after_quiet_band(med, lo, hi)
     if inner_c is None:
         return None, None, 0.0, None
 
