@@ -176,6 +176,19 @@ Making this card work required three changes, all now in the code:
 - **Shaded vintage gold borders:** the border isn't one flat colour, so "where the colour changes" fails. The inner edge is now the straight line that's consistent along the whole side.
 - **Old Japanese backs:** the swirl runs right to the edge and the reference is a thin red frame line. Using the median across scanlines removes the swirl and the light rays and keeps the line.
 
+### Pokémon backs (eBay photos, `online-tests/ready-to-test`)
+
+All 21 real backs in the test set now measure, with boxes on the right edges
+(checked by eye). That includes 12 that used to fail: 9 phone photos at ~740 px,
+plus the clefairy, entei_34_promo_b and vaporeon high-res photos. The fronts and
+the backs that already worked give exactly the same numbers as before. (The
+entei_34_promo_c, cool_porygon and blaines_arcanine "back" files are really
+close-ups of the front, so they still fail.) Fixes, each used only when the
+normal method finds nothing:
+- **Soft inner edge:** on the left side of the swirl, the blue is almost the border colour. The edge was found but judged "too weak" against the textured swirl. It is now compared with the flat border band in front of it.
+- **Dark back on a dark background or stand:** the card edge is real but weak next to the yellow logo, and its outline may not close. A second pass accepts weaker edges and open outlines, but no side may lie on the photo's border (card cut off).
+- **Tight scans on white:** the white strip between the card and the scanner's edge looked like a card border, and the outline stepped out to the photo's border. It no longer does.
+
 ## Known limits (be honest about these in the pitch)
 
 1. **One real card so far.** Next step: 20–30 real cards with borders measured by hand or with a centering tool. Tony's 7 cards at PSA are the first real benchmark.
@@ -187,7 +200,8 @@ Making this card work required three changes, all now in the code:
 7. **Whitening needs a dark background (any dark surface, not necessarily black); centering doesn't.** Centering only needs a plain background that contrasts with the border. On a light background the blended edge pixels look like whitening, so the test site marks whitening "skipped" and the test still counts for centering (ceiling = centering only). Glare on the border also reads as whitening (the glare warning catches large patches).
 8. **Whitening can't be measured where the border isn't a flat colour** (old Japanese swirl backs, full-art and silver borders) or is already near white (white-border cards). Those zones are reported as "unknown", not guessed.
 9. **Slab photos are a poor input for whitening:** the slab's bright plastic rim can touch the card edge and read as whitening (seen on a Donphan slab scan). Photograph the bare card.
-10. Corner radius is assumed to be 3 mm. Surface (scratches, print lines, dents) is not checked yet.
+10. **Pokémon backs work, but with less margin than fronts.** The inner edge of the dark blue border is soft on the left side, and a dark back on a dark surface has a weak card edge. Both are now handled, but only checked on eBay photos (no hand-measured truth yet). Many back photos come out "unreliable" because they're low resolution. Prefer a mid-grey or light background for backs (white is fine for centering; whitening is then skipped).
+11. Corner radius is assumed to be 3 mm. Surface (scratches, print lines, dents) is not checked yet.
 
 ## Files
 
