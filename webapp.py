@@ -65,12 +65,35 @@ LOG_LOCK = threading.Lock()      # several teammates can upload at once
 @app.before_request
 def require_password():
     """Browser login box; any username, the team password."""
+    if request.method == "OPTIONS" and (
+        request.path.startswith("/api/") or request.path.startswith("/tests/")
+    ):
+        return Response("", 204)
+    if os.environ.get("PUBLIC_API") == "1" and (
+        request.path.startswith("/api/") or request.path.startswith("/tests/")
+    ):
+        return None
     if PASSWORD is None:
         return None
     auth = request.authorization
     if auth and auth.password and hmac.compare_digest(auth.password.encode(), PASSWORD.encode()):
         return None
     return Response("Password required.", 401, {"WWW-Authenticate": 'Basic realm="GradeWise test"'})
+
+
+@app.after_request
+def add_cors_headers(resp):
+    """Allow the Vercel frontend to call /api/* and /tests/* from another origin."""
+    if request.path.startswith("/api/") or request.path.startswith("/tests/"):
+        resp.headers["Access-Control-Allow-Origin"] = os.environ.get("CORS_ORIGIN", "*")
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return resp
+
+
+@app.get("/api/health")
+def api_health():
+    return jsonify({"status": "ok"})
 
 
 # --------------------------------------------------------------- helpers --
@@ -665,22 +688,24 @@ def main(argv=None):
         return
 
     PASSWORD = os.environ.get("GRADEWISE_PASSWORD")
-    if args.deploy and not PASSWORD:
-        # never serve the site on the internet without a password
-        raise SystemExit("Set the GRADEWISE_PASSWORD environment variable on the host.")
-    if not PASSWORD:
+    public_api = os.environ.get("PUBLIC_API") == "1"
+    if args.deploy and not PASSWORD and not public_api:
+        # never serve the site on the internet without a password unless PUBLIC_API=1
+        raise SystemExit("Set GRADEWISE_PASSWORD (or PUBLIC_API=1) on the host.")
+    if not PASSWORD and not public_api:
         print("Type the team password (nothing shows while you type), then press Enter.")
         PASSWORD = getpass.getpass("Team password: ")
         # typed blind, so ask again: a typo here locks the whole team out
         if getpass.getpass("Same password again: ") != PASSWORD:
             raise SystemExit("The two passwords don't match. Run the command again.")
-    if PASSWORD != PASSWORD.strip():
-        raise SystemExit("The password starts or ends with a space. Choose one without.")
-    if len(PASSWORD) < 8:
-        raise SystemExit(f"Use a password of at least 8 characters (got {len(PASSWORD)}).")
-    if not PASSWORD.isascii():
-        # some browsers (Safari) send accented letters in a different encoding: it would never match
-        raise SystemExit("Use only plain letters, digits and symbols like - _ ! (no accents like è or €).")
+    if PASSWORD:
+        if PASSWORD != PASSWORD.strip():
+            raise SystemExit("The password starts or ends with a space. Choose one without.")
+        if len(PASSWORD) < 8:
+            raise SystemExit(f"Use a password of at least 8 characters (got {len(PASSWORD)}).")
+        if not PASSWORD.isascii():
+            # some browsers (Safari) send accented letters in a different encoding: it would never match
+            raise SystemExit("Use only plain letters, digits and symbols like - _ ! (no accents like è or €).")
     from waitress import serve
     if args.deploy:
         port = int(os.environ.get("PORT", "8000"))

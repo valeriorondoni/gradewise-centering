@@ -20,6 +20,7 @@ import {
 import { AnalysisRun, AssessmentMode } from '../types/cardRecord';
 import { suggestCatalogMatch } from '../data/mockMarket';
 import { LiveCatalogCard, searchPokemonCards } from '../data/pokemonTcgApi';
+import { apiUrl } from '../data/apiConfig';
 
 interface GradingServiceEntryProps {
   onBackHome: () => void;
@@ -465,7 +466,7 @@ export function GradingServiceEntry({
         formData.append('cropped', 'true');
       }
 
-      const response = await fetch('/api/analyse', {
+      const response = await fetch(apiUrl('/api/analyse'), {
         method: 'POST',
         body: formData,
       });
@@ -1157,7 +1158,7 @@ export function GradingServiceEntry({
                           <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
                             {imgName ? (
                               <img
-                                src={`/tests/${result.id}/${imgName}`}
+                                src={apiUrl(`/tests/${result.id}/${imgName}`)}
                                 alt={`${side.side} ${tab}`}
                                 className="h-full w-full object-contain"
                               />
@@ -1267,7 +1268,7 @@ export function GradingServiceEntry({
                     >
                       <div className="aspect-square bg-slate-900">
                         <img
-                          src={`/tests/${result.id}/${photo.image}`}
+                          src={apiUrl(`/tests/${result.id}/${photo.image}`)}
                           alt={LABEL_BY_KEY[photo.key] || photo.key}
                           className="h-full w-full object-cover"
                         />

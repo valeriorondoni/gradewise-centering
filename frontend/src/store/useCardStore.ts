@@ -14,6 +14,7 @@ import {
   suggestCatalogMatch,
 } from '../data/mockMarket';
 import { fetchRandomLiveCards } from '../data/pokemonTcgApi';
+import { apiUrl } from '../data/apiConfig';
 
 const STORAGE_KEY = 'gradewise_card_records_v1';
 
@@ -93,10 +94,10 @@ export function useCardStore() {
       wearCap: run.wear_cap,
       reliable: run.reliable,
       frontOverlayUrl: front?.images.centering
-        ? `/tests/${run.id}/${front.images.centering}`
+        ? apiUrl(`/tests/${run.id}/${front.images.centering}`)
         : undefined,
       backOverlayUrl: back?.images.centering
-        ? `/tests/${run.id}/${back.images.centering}`
+        ? apiUrl(`/tests/${run.id}/${back.images.centering}`)
         : undefined,
       rawValue: val.rawValue,
       gradedValueLow: val.gradedLow,
