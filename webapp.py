@@ -36,7 +36,7 @@ from datetime import datetime
 
 import cv2
 import numpy as np
-from flask import (Flask, Response, abort, redirect, render_template_string, request,
+from flask import (Flask, Response, abort, jsonify, redirect, render_template_string, request,
                    send_from_directory, url_for)
 
 from centering import analyse
@@ -269,6 +269,72 @@ def _history():
 
 
 # ---------------------------------------------------------------- routes --
+
+@app.post("/api/analyse")
+def api_analyse():
+    """JSON endpoint for the React frontend to upload front/back card photos."""
+    front, back = request.files.get("front"), request.files.get("back")
+    if not (front and front.filename and back and back.filename):
+        return jsonify({"error": "Both front and back card photos are required."}), 400
+
+    run_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
+    run_dir = os.path.join(TESTS, run_id)
+    os.makedirs(run_dir, exist_ok=True)
+    cropped = request.form.get("cropped", "").lower() in ("1", "true", "yes", "on")
+    mode = request.form.get("mode", "quick")
+    if mode not in ("quick", "detailed"):
+        mode = "quick"
+    run = {
+        "id": run_id,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "tester": request.form.get("tester", "").strip()[:40],
+        "name": request.form.get("name", "").strip(),
+        "mode": mode,
+        "cropped": cropped,
+        "actual_grade": _parse_grade(request.form.get("actual_grade", "")),
+        "sides": [],
+    }
+    for side, f in (("front", front), ("back", back)):
+        run["sides"].append(_run_side(f, side, cropped, run_dir, "", ""))
+
+    detail_keys = (
+        "corner_top_left",
+        "corner_top_right",
+        "corner_bottom_left",
+        "corner_bottom_right",
+        "edge_top",
+        "edge_bottom",
+        "edge_left",
+        "edge_right",
+        "surface_front_angled",
+        "surface_back_angled",
+    )
+    detail_photos = []
+    for key in detail_keys:
+        f = request.files.get(key)
+        if f and f.filename:
+            data = np.frombuffer(f.read(), np.uint8)
+            img = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+            if img is not None:
+                fname = f"detail_{key}.jpg"
+                cv2.imwrite(os.path.join(run_dir, fname), img)
+                detail_photos.append({"key": key, "image": fname})
+
+    for idx, f in enumerate(request.files.getlist("extra_photos")):
+        if f and f.filename:
+            data = np.frombuffer(f.read(), np.uint8)
+            img = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+            if img is not None:
+                fname = f"detail_extra_{idx + 1}.jpg"
+                cv2.imwrite(os.path.join(run_dir, fname), img)
+                detail_photos.append({"key": f"extra_{idx + 1}", "image": fname})
+
+    run["detail_photos"] = detail_photos
+    _summarise(run)
+    with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
+        json.dump(run, f, indent=2)
+    return jsonify(run)
+
 
 @app.post("/")
 def upload():

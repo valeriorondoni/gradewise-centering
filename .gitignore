@@ -16,5 +16,10 @@ __pycache__/
 # Editor / OS clutter
 .vscode/
 .idea/
+.DS_Store
 Thumbs.db
 desktop.ini
+
+# Frontend dependencies & build output
+frontend/node_modules/
+frontend/dist/
