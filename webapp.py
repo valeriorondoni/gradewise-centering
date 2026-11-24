@@ -122,6 +122,13 @@ def _parse_grade(text: str) -> float | None:
 
 
 MIN_PHOTO_PX = 500    # shorter side; below this nothing useful can be measured
+# Longer side kept from an upload. The engine straightens the card to 20 px/mm
+# (1260 px across), so a 12 MP phone photo (card ~2500 px) only costs memory:
+# at 3000 px the card is still ~1800 px wide and the results are unchanged.
+MAX_PHOTO_PX = 3000
+# Analyses allowed at once. Each needs ~250 MB; on a 512 MB host two at once
+# crash the server, so further uploads wait their turn instead.
+ENGINE_SLOT = threading.BoundedSemaphore(int(os.environ.get("ENGINE_SLOTS", "1")))
 
 
 def _explain(msg: str) -> str:
@@ -147,18 +154,28 @@ def _run_side(file, side: str, cropped: bool, run_dir: str, ref_lr: str, ref_tb:
            "wear": None, "wear_error": None, "images": {},
            "ref_lr": _parse_ref(ref_lr), "ref_tb": _parse_ref(ref_tb),
            "measured_lr": None, "measured_tb": None, "err_lr": None, "err_tb": None}
+    with ENGINE_SLOT:
+        return _analyse_side(file, side, cropped, run_dir, out)
+
+
+def _analyse_side(file, side: str, cropped: bool, run_dir: str, out: dict) -> dict:
     data = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+    del data
     if img is None:
         out["error"] = "Could not read this image."
         return out
-    cv2.imwrite(os.path.join(run_dir, f"{side}_input.jpg"), img)
     h, w = img.shape[:2]
     if min(h, w) < MIN_PHOTO_PX:
+        cv2.imwrite(os.path.join(run_dir, f"{side}_input.jpg"), img)
         out["error"] = (f"The image is only {w} × {h} px, far too small to measure (the card should be "
                         "1000+ px wide). Upload the original photo, not a thumbnail, screenshot or "
                         "image saved from a chat app.")
         return out
+    if max(h, w) > MAX_PHOTO_PX:
+        s = MAX_PHOTO_PX / max(h, w)
+        img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+    cv2.imwrite(os.path.join(run_dir, f"{side}_input.jpg"), img)
 
     try:
         res, vis = analyse(img, side, cropped)

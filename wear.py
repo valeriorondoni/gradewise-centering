@@ -91,9 +91,18 @@ def _card_geometry(fh: int, fw: int):
     depth = cv2.distanceTransform(card, cv2.DIST_L2, 5) / PPM
     outside = cv2.distanceTransform(255 - card, cv2.DIST_L2, 5) / PPM
 
-    yy, xx = np.mgrid[0:fh, 0:fw]
-    dist_to_side = np.stack([yy - y0, x1 - xx, y1 - yy, xx - x0])      # top, right, bottom, left
-    side_idx = dist_to_side.argmin(0)
+    # Compact types and broadcasting instead of full int64 grids: this runs on a
+    # 2.6 Mpx image and was the bulk of the engine's memory (512 MB hosts crashed).
+    yy = np.arange(fh, dtype=np.int32)[:, None]
+    xx = np.arange(fw, dtype=np.int32)[None, :]
+    # nearest straight side: top, right, bottom, left; on a tie the earlier one wins
+    nearest = np.broadcast_to(yy - y0, (fh, fw)).copy()
+    side_idx = np.zeros((fh, fw), np.uint8)
+    for i, d in enumerate((x1 - xx, y1 - yy, xx - x0), start=1):
+        closer = d < nearest
+        side_idx[closer] = i
+        np.minimum(nearest, d, out=nearest)
+    del nearest
     pos = np.where(side_idx % 2 == 0, xx - x0, yy - y0)                  # position along the side
 
     cz = CORNER_MM * PPM
@@ -114,7 +123,7 @@ def _ink_reference(lab, depth, side_idx, pos, work, arc, bg):
     sample pixels that look more like the background than the ink are dropped."""
     ref = np.zeros_like(lab)
     ok = np.zeros(depth.shape, bool)
-    seg = (pos // (SEGMENT_MM * PPM)).astype(int)
+    seg = (pos // (SEGMENT_MM * PPM)).astype(np.int32)
     sample = (depth >= REF_MM[0]) & (depth <= REF_MM[1]) & ~arc
     deep = depth >= 0.5 * (REF_MM[0] + REF_MM[1])          # inner half: least background
     for s in range(4):
@@ -200,7 +209,10 @@ def analyse_wear(img: np.ndarray, side: str = "front", cropped: bool = False):
             warnings.append("Light background: thin whitening can't be told apart from the "
                             "background. Retake on a dark, plain surface.")
 
-    white = work & ok & (depth > skip_mm) & _whitish(lab, ref)
+    # Only the strip along the edge is ever used: test just those pixels (about
+    # 7% of the card) instead of building full-image temporaries in _whitish.
+    white = work & ok & (depth > skip_mm)
+    white[white] = _whitish(lab[white], ref[white])
 
     # keep spots that start at the outline and are bigger than ~2 photo pixels
     n, labels, stats, _ = cv2.connectedComponentsWithStats(white.astype(np.uint8), connectivity=8)
